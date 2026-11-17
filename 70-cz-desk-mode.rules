@@ -1,0 +1,6 @@
+# cz-desk-mode: let the input group create a virtual keyboard (/dev/uinput),
+# which Desk Mode uses to hand the CardputerZero's built-in keyboard to the
+# HDMI desktop. The input group can already read every keyboard; this also
+# lets it type. static_node applies the permissions to /dev/uinput before the
+# uinput module is loaded (the first open loads it).
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", GROUP="input", MODE="0660"

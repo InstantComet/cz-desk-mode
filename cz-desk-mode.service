@@ -1,0 +1,24 @@
+[Unit]
+Description=Desk Mode: HDMI desktop with the CardputerZero's own keyboard
+After=systemd-user-sessions.service user@1000.service
+
+[Service]
+Type=simple
+# Not root: the desktop runs as the desktop user's own systemd unit, and that
+# user may open the GPU (video group), the keyboard and /dev/uinput (input).
+User=pi
+Group=pi
+# /var/lib/cz-desk-mode, owned by pi: the app's settings, requests and status
+StateDirectory=cz-desk-mode
+StateDirectoryMode=0755
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/bin/python3 /usr/lib/cz-desk-mode/cz-desk-mode.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

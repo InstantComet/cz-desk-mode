@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Desk Mode
+Comment=HDMI desktop with the CardputerZero's own keyboard
+Exec=/usr/bin/python3 /usr/share/APPLaunch/apps/cz-desk-mode/app.py
+Icon=share/images/cz-desk-mode.png
+Terminal=false
+Categories=Settings;
+StartupNotify=false

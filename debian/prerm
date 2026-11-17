@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+# Stopping the service gives the keyboard back to the launcher. The desktop
+# itself (a user unit) keeps running until it is closed or the device reboots.
+if [ "$1" = remove ]; then
+    systemctl disable --now cz-desk-mode.service || true
+fi
+exit 0

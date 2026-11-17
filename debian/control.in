@@ -1,0 +1,13 @@
+Package: cz-desk-mode
+Version: @VERSION@
+Architecture: all
+Maintainer: InstantComet <10364622+InstantComet@users.noreply.github.com>
+Section: utils
+Priority: optional
+Depends: python3, python3-pil, fonts-dejavu-core, systemd, udev, labwc
+Homepage: https://github.com/InstantComet/cz-desk-mode
+Description: HDMI desktop with the CardputerZero's own keyboard
+ Starts the Raspberry Pi desktop on an HDMI display when one is plugged in,
+ without LightDM and without root, and hands the built-in keyboard to it on
+ request (Ctrl+Alt+Esc gives it back). The built-in screen and the launcher
+ keep working. Includes the Desk Mode launcher app.

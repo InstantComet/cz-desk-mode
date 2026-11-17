@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+    # /dev/uinput for the input group (the udev rule also covers later boots).
+    udevadm control --reload || true
+    modprobe uinput 2>/dev/null || true
+    udevadm trigger --action=change --subsystem-match=misc --sysname-match=uinput || true
+    if [ -c /dev/uinput ]; then chgrp input /dev/uinput && chmod 0660 /dev/uinput || true; fi
+    systemctl daemon-reload || true
+    systemctl enable cz-desk-mode.service || true
+    systemctl restart cz-desk-mode.service || true
+fi
+exit 0

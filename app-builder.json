@@ -1,0 +1,33 @@
+{
+  "package_name": "cz-desk-mode",
+  "version": "1.0.0",
+  "app_name": "Desk Mode",
+  "bin_name": "cz-desk-mode",
+  "description": "HDMI desktop with the CardputerZero's own keyboard",
+  "store": {
+    "summary": "Plug in HDMI, get the Pi desktop, type on the Cardputer's own keyboard",
+    "description": "Desk Mode turns the CardputerZero into a small desktop computer: plug in an HDMI display and the Raspberry Pi desktop starts on it, while the built-in screen and the launcher keep working.\n\n**HDMI desktop**\n- Starts automatically when HDMI is plugged in (can be switched off), or from the app.\n- Runs as your user, without LightDM and without root. LightDM's login screen starts a second audio server that takes the sound card from the launcher and can freeze it; Desk Mode avoids that.\n- Close it from the app when you're done (it frees ~55 MB of RAM). Battery Saver can also close it automatically after HDMI has been unplugged for a while.\n\n**Built-in keyboard on the HDMI display**\n- When the desktop starts, the built-in screen asks whether the keyboard should go to the HDMI display (or set it to always / never).\n- Symbols typed with Sym come out right on the desktop (the keyboard sends non-standard codes for them; Desk Mode translates).\n- Ctrl+Alt+Esc gives the keyboard back to the Cardputer. Unplugging HDMI or closing the desktop does too.\n- While the keyboard is on the HDMI display, the built-in screen turns off to save power.\n\nKeys: F/X move, Enter change, I info, Esc back.",
+    "categories": ["System Tools"],
+    "screenshots": ["screenshots/main.png", "screenshots/ask.png"],
+    "icon": "screenshots/icon.png",
+    "license": "MIT",
+    "source_repo": "https://github.com/InstantComet/cz-desk-mode",
+    "author": { "github": "InstantComet", "display_name": "InstantComet" },
+    "share_code": "DESK",
+    "permissions": {
+      "camera": false,
+      "microphone": false,
+      "imu": false,
+      "network": false,
+      "additional_hardware": false,
+      "background_service": true,
+      "external_display": true
+    },
+    "locales": {
+      "zh-CN": {
+        "title": "桌面模式",
+        "summary": "插上 HDMI 就有树莓派桌面，用 Cardputer 自带键盘打字"
+      }
+    }
+  }
+}

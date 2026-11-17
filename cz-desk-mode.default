@@ -1,0 +1,9 @@
+# Default settings for cz-desk-mode.service.
+# The Desk Mode app writes your choices to /var/lib/cz-desk-mode/settings,
+# which overrides this file. Changes apply within a few seconds.
+
+# Start the HDMI desktop when an HDMI display is plugged in (1/0).
+AUTOSTART=1
+# Where the built-in keyboard goes when the desktop starts:
+# ask (question on the built-in screen), desktop, or cardputer.
+KEYBOARD_ON_START=ask
