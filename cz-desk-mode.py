@@ -198,7 +198,9 @@ class LcdHold:
     """Pause the launcher and own the LCD; put everything back on release.
 
     Battery Saver may resume the launcher (it wakes it when the backlight
-    comes on), so keep() re-pauses it and redraws whenever that happens."""
+    comes on), so keep() re-pauses it and redraws whenever that happens. A
+    launcher resumed while asleep turns the backlight off again, so keep()
+    also puts the backlight back while the screen should be lit (`lit`)."""
 
     def __init__(self):
         self.pid = launcher_pid()
@@ -214,8 +216,8 @@ class LcdHold:
             self.saved = self.fb.snapshot()
         except Exception as e:
             log('framebuffer:', e)
-        if self.backlight == '0':
-            set_backlight(launcher_brightness())
+        self.lit = self.backlight if self.backlight not in ('', '0') else str(launcher_brightness())
+        set_backlight(self.lit)
 
     def pause(self):
         for pid in self.apps:
@@ -231,10 +233,17 @@ class LcdHold:
 
     def keep(self):
         """True if the launcher had been resumed behind our back (redraw needed)."""
-        if self.pid and proc_state(self.pid) not in ('T', 't'):
+        resumed = bool(self.pid and proc_state(self.pid) not in ('T', 't'))
+        if resumed:
             self.pause()
-            return True
-        return False
+        if self.lit and read(BACKLIGHT, '') == '0':
+            set_backlight(self.lit)
+        return resumed
+
+    def dark(self):
+        """Turn the screen off and keep it off."""
+        self.lit = None
+        set_backlight(0)
 
     def draw(self, image):
         if self.fb:
@@ -384,6 +393,33 @@ def grab(fd, on):
     fcntl.ioctl(fd, EVIOCGRAB, 1 if on else 0)
 
 
+def wake_screen():
+    """Wake the launcher if the LCD is dark, the way a key press would: tap Shift
+    on the built-in keyboard. Battery Saver resumes the launcher on that key,
+    and the launcher lights the screen and redraws itself. Turning the
+    backlight on directly would show whatever stale frame is in the LCD
+    (black after a sleep) until the next key. Shift alone does nothing in the
+    launcher. Only works while nobody grabs the keyboard."""
+    if read(BACKLIGHT, '') != '0':
+        return
+    try:
+        fd = os.open(KEYBOARD, os.O_WRONLY)
+    except OSError as e:
+        log('wake screen:', e)
+        set_backlight(launcher_brightness())
+        return
+    try:
+        for value in (1, 0):
+            os.write(fd, EVENT.pack(0, 0, EV_KEY, KEY_LEFTSHIFT, value))
+            os.write(fd, EVENT.pack(0, 0, EV_SYN, 0, 0))
+            time.sleep(0.05)
+        log('screen woken')
+    except OSError as e:
+        log('wake screen:', e)
+    finally:
+        os.close(fd)
+
+
 def flush_keys(fd):
     """Drop what queued up while nobody read the keyboard. The fd stays open
     between handovers, so it holds every key pressed in the launcher since;
@@ -482,7 +518,7 @@ class Handover:
             self.lcd.draw(screen_handed_over())
         if self.dark_at and time.monotonic() >= self.dark_at:
             self.dark_at = 0
-            set_backlight(0)   # saves power; Battery Saver then idles the launcher
+            self.lcd.dark()    # saves power; Battery Saver then idles the launcher
 
     def close(self, why):
         try:
@@ -493,10 +529,12 @@ class Handover:
             grab(self.keyboard, False)
         except OSError:
             pass
-        # Put the launcher's frame back and the screen on, as it was before.
-        backlight = self.lcd.backlight if self.lcd.backlight not in ('', '0') else launcher_brightness()
-        self.lcd.release(backlight)
+        # Put the launcher back as it was, then make sure the screen is on: the
+        # keyboard is back, so the user is about to use the Cardputer.
+        self.lcd.release()
         log('keyboard -> Cardputer:', why)
+        if why != 'exit':
+            wake_screen()
 
 
 def ask_keyboard(keyboard):
@@ -504,19 +542,21 @@ def ask_keyboard(keyboard):
     lcd = LcdHold()
     grab(keyboard, True)        # the answer must not reach the paused launcher
     flush_keys(keyboard)
-    choice, answer = 0, None
+    choice, answer, why = 0, None, 'answered'
     deadline = time.monotonic() + POPUP_TIMEOUT
     shown = None
     try:
         while answer is None:
             left = int(deadline - time.monotonic()) + 1
             if left <= 0 or not hdmi_connected():
-                answer = False
+                answer, why = False, 'no answer' if left <= 0 else 'HDMI unplugged'
                 break
             if lcd.keep() or shown != (choice, left):
                 lcd.draw(screen_ask(choice, left))
                 shown = (choice, left)
-            r, _, _ = select.select([keyboard], [], [], 0.25)
+            # Short: Battery Saver resumes the launcher when the backlight comes
+            # on, and keep() must re-pause it before it draws over the question.
+            r, _, _ = select.select([keyboard], [], [], 0.1)
             if not r:
                 continue
             for code, value in key_events(keyboard):
@@ -535,10 +575,12 @@ def ask_keyboard(keyboard):
     finally:
         # Let go of the keys still held (Enter), so the launcher sees no half press.
         time.sleep(0.2)
-        key_events(keyboard)
+        flush_keys(keyboard)
         grab(keyboard, False)
         lcd.release()
-    log('keyboard question:', 'HDMI display' if answer else 'keep here')
+    log('keyboard question:', 'HDMI display' if answer else 'keep here', f'({why})')
+    if not answer and why == 'answered':
+        wake_screen()   # the user is at the Cardputer; on unplug the main loop wakes it
     return answer
 
 
@@ -601,7 +643,9 @@ def main():
     try:
         while True:
             fds = [uevents] + ([keyboard] if handover else [])
-            r, _, _ = select.select(fds, [], [], 1.0)
+            # While the handover notice shows, poll fast enough that keep()
+            # re-pauses a launcher Battery Saver resumed before it draws much.
+            r, _, _ = select.select(fds, [], [], 0.2 if handover and handover.dark_at else 1.0)
             now = time.monotonic()
             if handover and keyboard in r and handover.pump():
                 handover.close('Ctrl+Alt+Esc')
@@ -628,9 +672,12 @@ def main():
                         just_started = not handover
                     elif config['AUTOSTART'] == '1':
                         just_started = desktop_start()
-                if not hdmi and handover:
-                    handover.close('HDMI unplugged')
-                    handover = None
+                if not hdmi:
+                    if handover:
+                        handover.close('HDMI unplugged')   # wakes the screen
+                        handover = None
+                    else:
+                        wake_screen()   # unplugged: the Cardputer is in use again
 
             request = take_request()
             if request == 'desktop-start':
