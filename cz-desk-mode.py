@@ -594,7 +594,7 @@ def main():
     hdmi = hdmi_connected()
     active = desktop_active()
     log(f'started: hdmi={hdmi} desktop={active} config={config}')
-    just_started = False   # the desktop came up this round: ask about the keyboard
+    just_started = False   # the desktop came up or HDMI came back: ask about the keyboard
     if hdmi and not active and config['AUTOSTART'] == '1':
         just_started = active = desktop_start()
     next_check = 0.0
@@ -613,16 +613,24 @@ def main():
             if new_stamp != stamp:
                 stamp, config = new_stamp, load_config()
 
-            if uevents in r and drm_changed(uevents):
-                now_hdmi = hdmi_connected()
-                if now_hdmi != hdmi:
-                    hdmi = now_hdmi
-                    log('HDMI', 'connected' if hdmi else 'disconnected')
-                    if hdmi and config['AUTOSTART'] == '1' and not desktop_active():
+            # The uevent only wakes us early; the connector status is read every
+            # second, so a missed or merged uevent cannot hide a plug or unplug.
+            if uevents in r:
+                drm_changed(uevents)
+            now_hdmi = hdmi_connected()
+            if now_hdmi != hdmi:
+                hdmi = now_hdmi
+                log('HDMI', 'connected' if hdmi else 'disconnected')
+                if hdmi:
+                    if desktop_active():
+                        # Still up from before (Battery Saver waits before closing
+                        # it): the keyboard went back on unplug, so ask again.
+                        just_started = not handover
+                    elif config['AUTOSTART'] == '1':
                         just_started = desktop_start()
-                    if not hdmi and handover:
-                        handover.close('HDMI unplugged')
-                        handover = None
+                if not hdmi and handover:
+                    handover.close('HDMI unplugged')
+                    handover = None
 
             request = take_request()
             if request == 'desktop-start':
