@@ -75,7 +75,8 @@ sudo bash install.sh
 
 - 在 Debian 13（trixie）、内核 `6.18.39+rpt-rpi-v8`、原版启动器和原版 `labwc-pi` 桌面的 CardputerZero 上测试过。默认用户为 `pi`（uid 1000）。
 - 如果你的系统启用了 LightDM，请禁用它（`sudo systemctl disable lightdm`），以免开机时多启动一个桌面。
-- 这个桌面没有登录会话，所以面板的更新检查会弹窗要密码（PackageKit 通过 polkit 发起）。点取消即可，不影响其他功能。
+- 这个桌面没有登录会话，面板的更新检查每次桌面启动都会弹窗要密码（PackageKit 通过 polkit 发起）。所以 Desk Mode 第一次启动桌面时，会从 `~/.config/wf-panel-pi/wf-panel-pi.ini` 的面板组件列表里去掉 `updater`。只做这一次：你在面板设置里加回来，它不会再去掉。更新系统请用 `sudo apt update && sudo apt full-upgrade`。
+- 插上 HDMI 时如果接口断开又连上，Desk Mode 会等它稳定后再启动桌面，最多尝试 3 次。
 
 ## 许可
 

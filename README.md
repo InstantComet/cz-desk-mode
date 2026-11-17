@@ -75,7 +75,8 @@ The app saves its choices in `/var/lib/cz-desk-mode/settings`, which overrides `
 
 - Tested on a CardputerZero running Debian 13 (trixie), kernel `6.18.39+rpt-rpi-v8`, the stock launcher and the stock `labwc-pi` desktop. The user is assumed to be `pi` (uid 1000).
 - If LightDM is enabled on your image, disable it (`sudo systemctl disable lightdm`) so it doesn't start a second desktop at boot.
-- The desktop has no login session, so the panel's update checker asks for a password (PackageKit via polkit). Cancel it; nothing else is affected.
+- The desktop has no login session, so the panel's update checker would ask for a password (PackageKit via polkit) every time the desktop starts. The first time Desk Mode starts the desktop, it takes `updater` off the panel's widget list in `~/.config/wf-panel-pi/wf-panel-pi.ini` (once only: add it back in the panel's settings and it stays). Update with `sudo apt update && sudo apt full-upgrade` instead.
+- If HDMI bounces as it is plugged in, Desk Mode waits for it to settle and tries starting the desktop up to 3 times.
 
 ## License
 

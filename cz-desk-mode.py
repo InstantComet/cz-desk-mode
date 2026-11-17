@@ -66,6 +66,8 @@ FRAMEBUFFER = '/dev/fb_lcd'
 BACKLIGHT = '/sys/class/backlight/backlight/brightness'
 LAUNCHER_PATH = '/usr/share/APPLaunch/bin/M5CardputerZero-APPLaunch'
 LAUNCHER_CONFIG = os.path.expanduser('~/.config/cardputerzero/config.json')
+SETTLE_SECONDS = 2          # HDMI must stay connected this long before the desktop starts
+START_TRIES = 3             # labwc fails ("unable to create allocator") if HDMI bounces as it starts
 POPUP_TIMEOUT = 30          # s; no answer keeps the keyboard on the Cardputer
 NOTICE_SECONDS = 8          # then the LCD backlight goes off while handed over
 
@@ -142,9 +144,95 @@ def desktop_active():
     return run(['systemctl', '--user', 'is-active', DESKTOP_UNIT])[1] == 'active'
 
 
+PANEL_INI = os.path.expanduser('~/.config/wf-panel-pi/wf-panel-pi.ini')
+PANEL_SYSTEM_INI = '/etc/xdg/wf-panel-pi/wf-panel-pi.ini'
+PANEL_DONE = STATE_DIR + '/panel-updater-removed'
+
+
+def panel_keys(path):
+    """{key: value} of the [panel] section of a wf-panel-pi ini file."""
+    out, section = {}, None
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('['):
+                    section = line
+                elif section == '[panel]' and '=' in line:
+                    key, _, value = line.partition('=')
+                    out[key.strip()] = value.strip()
+    except OSError:
+        pass
+    return out
+
+
+def panel_without_updater():
+    """Once: take the update checker off the desktop's panel. It asks PackageKit
+    to refresh when the panel starts, and without a login session (this
+    desktop has none) polkit wants the password for that every time. Its
+    'interval' setting does not stop that first check. The user's panel
+    file overrides the system one key by key, so the widget lists are
+    written there, the system's minus 'updater'. Done only once, so adding
+    it back in the panel's settings sticks."""
+    if os.path.exists(PANEL_DONE):
+        return
+    effective = panel_keys(PANEL_SYSTEM_INI)
+    effective.update(panel_keys(PANEL_INI))
+    fixed = {k: ' '.join(w for w in effective[k].split() if w != 'updater')
+             for k in ('widgets_left', 'widgets_right')
+             if 'updater' in effective.get(k, '').split()}
+    if fixed:
+        try:
+            try:
+                with open(PANEL_INI) as f:
+                    lines = f.read().splitlines()
+            except FileNotFoundError:
+                lines = []
+            section, done = None, set()
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if stripped.startswith('['):
+                    section = stripped
+                elif section == '[panel]' and stripped.partition('=')[0].strip() in fixed:
+                    key = stripped.partition('=')[0].strip()
+                    lines[i] = f'{key}={fixed[key]}'
+                    done.add(key)
+            missing = [f'{k}={v}' for k, v in fixed.items() if k not in done]
+            if missing:
+                if '[panel]' in (l.strip() for l in lines):
+                    at = [l.strip() for l in lines].index('[panel]') + 1
+                    lines[at:at] = missing
+                else:
+                    lines = ['[panel]'] + missing + ([''] + lines if lines else [])
+            os.makedirs(os.path.dirname(PANEL_INI), exist_ok=True)
+            tmp = PANEL_INI + '.cz-desk-mode'
+            with open(tmp, 'w') as f:
+                f.write('\n'.join(lines) + '\n')
+            os.replace(tmp, PANEL_INI)
+            log('panel: update checker removed (it asks for a password on this desktop)')
+        except OSError as e:
+            log('panel:', e)
+            return
+    try:
+        open(PANEL_DONE, 'w').close()
+    except OSError:
+        pass
+
+
+def desktop_up(seconds=3.0):
+    """True if the desktop is still running after `seconds` (labwc fails fast)."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if not desktop_active():
+            return False
+        time.sleep(0.25)
+    return desktop_active()
+
+
 def desktop_start():
     if desktop_active():
         return True
+    panel_without_updater()
     session = '/usr/bin/labwc-pi' if os.path.exists('/usr/bin/labwc-pi') else '/usr/bin/labwc'
     args = ['systemd-run', '--user', '--unit=' + DESKTOP_UNIT, '--collect',
             '-p', 'KillMode=mixed', '-p', 'Description=Desk Mode HDMI desktop']
@@ -484,7 +572,11 @@ class Handover:
     def __init__(self, keyboard):
         self.keyboard = keyboard
         self.virtual = VirtualKeyboard()
-        grab(keyboard, True)
+        try:
+            grab(keyboard, True)
+        except OSError:
+            self.virtual.close()   # the caller logs the failure
+            raise
         flush_keys(keyboard)     # not replay old launcher keys into the desktop
         self.held = set()        # physical keys down
         self.shifted = {}        # sym code -> we pressed Shift for it
@@ -539,9 +631,13 @@ class Handover:
 
 def ask_keyboard(keyboard):
     """Ask on the LCD where the keyboard should go. True = HDMI desktop."""
-    lcd = LcdHold()
-    grab(keyboard, True)        # the answer must not reach the paused launcher
+    try:
+        grab(keyboard, True)    # the answer must not reach the paused launcher
+    except OSError as e:        # EBUSY: something else holds the keyboard
+        log('keyboard question skipped:', e)
+        return False
     flush_keys(keyboard)
+    lcd = LcdHold()
     choice, answer, why = 0, None, 'answered'
     deadline = time.monotonic() + POPUP_TIMEOUT
     shown = None
@@ -637,8 +733,9 @@ def main():
     active = desktop_active()
     log(f'started: hdmi={hdmi} desktop={active} config={config}')
     just_started = False   # the desktop came up or HDMI came back: ask about the keyboard
+    start_at, tries = None, 0   # when to (re)try starting the desktop
     if hdmi and not active and config['AUTOSTART'] == '1':
-        just_started = active = desktop_start()
+        start_at = 0.0
     next_check = 0.0
     try:
         while True:
@@ -671,8 +768,10 @@ def main():
                         # it): the keyboard went back on unplug, so ask again.
                         just_started = not handover
                     elif config['AUTOSTART'] == '1':
-                        just_started = desktop_start()
+                        # HDMI often bounces right after plug-in; let it settle.
+                        start_at, tries = now + SETTLE_SECONDS, 0
                 if not hdmi:
+                    start_at = None
                     if handover:
                         handover.close('HDMI unplugged')   # wakes the screen
                         handover = None
@@ -680,8 +779,8 @@ def main():
                         wake_screen()   # unplugged: the Cardputer is in use again
 
             request = take_request()
-            if request == 'desktop-start':
-                just_started = (not desktop_active()) and desktop_start()
+            if request == 'desktop-start' and not desktop_active():
+                start_at, tries = now, 0
             elif request == 'desktop-stop':
                 if handover:
                     handover.close('desktop closing')
@@ -698,11 +797,25 @@ def main():
                 handover.close('app')
                 handover = None
 
+            if start_at is not None and now >= start_at:
+                start_at = None
+                if hdmi_connected() and not desktop_active():
+                    tries += 1
+                    if desktop_start() and desktop_up():
+                        just_started = True
+                    elif tries < START_TRIES and hdmi_connected():
+                        log(f'desktop did not stay up (try {tries}), trying again')
+                        start_at = time.monotonic() + SETTLE_SECONDS
+                    else:
+                        log('desktop did not start; plug HDMI in again or start it from the app')
+
             if just_started:
                 just_started = False
-                time.sleep(2.0)        # the launcher may still be busy with the app that asked
+                time.sleep(1.0)        # the launcher may still be busy with the app that asked
                 choice = config['KEYBOARD_ON_START']
-                if choice == 'desktop' or (choice == 'ask' and hdmi_connected() and ask_keyboard(keyboard)):
+                if not (hdmi_connected() and desktop_active()):
+                    pass               # gone again; the next plug-in or start asks
+                elif choice == 'desktop' or (choice == 'ask' and ask_keyboard(keyboard)):
                     try:
                         handover = Handover(keyboard)
                     except OSError as e:
