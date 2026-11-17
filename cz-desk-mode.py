@@ -384,6 +384,17 @@ def grab(fd, on):
     fcntl.ioctl(fd, EVIOCGRAB, 1 if on else 0)
 
 
+def flush_keys(fd):
+    """Drop what queued up while nobody read the keyboard. The fd stays open
+    between handovers, so it holds every key pressed in the launcher since;
+    without this an old Esc answers the question the moment it appears."""
+    try:
+        while os.read(fd, EVENT.size * 64):
+            pass
+    except BlockingIOError:
+        pass
+
+
 def key_events(fd):
     """(code, value) for every EV_KEY event readable now."""
     try:
@@ -438,6 +449,7 @@ class Handover:
         self.keyboard = keyboard
         self.virtual = VirtualKeyboard()
         grab(keyboard, True)
+        flush_keys(keyboard)     # not replay old launcher keys into the desktop
         self.held = set()        # physical keys down
         self.shifted = {}        # sym code -> we pressed Shift for it
         self.lcd = LcdHold()
@@ -491,13 +503,14 @@ def ask_keyboard(keyboard):
     """Ask on the LCD where the keyboard should go. True = HDMI desktop."""
     lcd = LcdHold()
     grab(keyboard, True)        # the answer must not reach the paused launcher
+    flush_keys(keyboard)
     choice, answer = 0, None
     deadline = time.monotonic() + POPUP_TIMEOUT
     shown = None
     try:
         while answer is None:
             left = int(deadline - time.monotonic()) + 1
-            if left <= 0:
+            if left <= 0 or not hdmi_connected():
                 answer = False
                 break
             if lcd.keep() or shown != (choice, left):
@@ -518,8 +531,6 @@ def ask_keyboard(keyboard):
                 elif code == KEY_Y:
                     answer = True
                 elif code in (KEY_ESC, KEY_N):
-                    answer = False
-                if not hdmi_connected():
                     answer = False
     finally:
         # Let go of the keys still held (Enter), so the launcher sees no half press.
