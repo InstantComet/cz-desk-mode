@@ -6,9 +6,11 @@ After=systemd-user-sessions.service user@1000.service
 Type=simple
 # Not root: the desktop runs as the desktop user's own systemd unit, and that
 # user may open the GPU (video group), the keyboard and /dev/uinput (input).
-User=pi
-Group=pi
-# /var/lib/cz-desk-mode, owned by pi: the app's settings, requests and status
+# By uid, not name: first-boot setup renames the default user "pi" but keeps
+# uid/gid 1000.
+User=1000
+Group=1000
+# /var/lib/cz-desk-mode, owned by that user: the app's settings, requests and status
 StateDirectory=cz-desk-mode
 StateDirectoryMode=0755
 Environment=XDG_RUNTIME_DIR=/run/user/1000

@@ -36,7 +36,7 @@ Keys: `F`/`X` move, `Enter` change, `I` info, `Esc` back to the launcher.
 
 ## How it works
 
-- **Desktop:** `labwc-pi` started as a transient user unit (`cz-desk-mode-desktop.service`) with `LIBSEAT_BACKEND=noop`, on `/dev/dri/card0` (the HDMI output) only. The user `pi` may open the GPU (`video` group) and input devices (`input` group), so no seat manager or root is needed. LightDM is not used: when its autologin fails it starts its login screen, whose own PipeWire takes the sound card from the launcher and deadlocks the launcher's audio, freezing its UI.
+- **Desktop:** `labwc-pi` started as a transient user unit (`cz-desk-mode-desktop.service`) with `LIBSEAT_BACKEND=noop`, on `/dev/dri/card0` (the HDMI output) only. The desktop user (uid 1000) may open the GPU (`video` group) and input devices (`input` group), so no seat manager or root is needed. LightDM is not used: when its autologin fails it starts its login screen, whose own PipeWire takes the sound card from the launcher and deadlocks the launcher's audio, freezing its UI.
 - **Keyboard:** the built-in keyboard (`tca8418c`) is on its own seat in the stock image, so the desktop never sees it. For a handover the service grabs it (`EVIOCGRAB`) and replays the keys through a virtual keyboard (`/dev/uinput`) on the default seat, translating the `Sym` layer's codes to standard key + Shift.
 - **Built-in screen:** for the question and the notice, the service pauses the launcher (and an app open in it), draws on `/dev/fb_lcd` and puts the launcher's frame back afterwards. To wake the screen it taps Shift on the built-in keyboard, so the launcher (and Battery Saver) wake as on any key press.
 - **HDMI:** read from `/sys/class/drm/card0-HDMI-A-1/status` every second, woken early by the kernel's drm uevents.
@@ -55,7 +55,7 @@ sudo bash install.sh
 
 The package installs:
 - `/usr/lib/cz-desk-mode/cz-desk-mode.py`, the service
-- `/usr/lib/systemd/system/cz-desk-mode.service` (enabled and started; `User=pi`)
+- `/usr/lib/systemd/system/cz-desk-mode.service` (enabled and started; `User=1000`)
 - `/usr/lib/udev/rules.d/70-cz-desk-mode.rules`: lets the `input` group use `/dev/uinput`. That group can already read every keyboard; with this it can also create a virtual one (type).
 - `/etc/default/cz-desk-mode` (default settings)
 - The Desk Mode app in `/usr/share/APPLaunch/`
@@ -73,7 +73,7 @@ The app saves its choices in `/var/lib/cz-desk-mode/settings`, which overrides `
 
 ## Notes
 
-- Tested on a CardputerZero running Debian 13 (trixie), kernel `6.18.39+rpt-rpi-v8`, the stock launcher and the stock `labwc-pi` desktop. The user is assumed to be `pi` (uid 1000).
+- Tested on a CardputerZero running Debian 13 (trixie), kernel `6.18.39+rpt-rpi-v8`, the stock launcher and the stock `labwc-pi` desktop. The desktop user is taken to be uid 1000: the stock `pi` user, also after first-boot setup renames it.
 - If LightDM is enabled on your image, disable it (`sudo systemctl disable lightdm`) so it doesn't start a second desktop at boot.
 - The desktop has no login session, so the panel's update checker would ask for a password (PackageKit via polkit) every time the desktop starts. The first time Desk Mode starts the desktop, it takes `updater` off the panel's widget list in `~/.config/wf-panel-pi/wf-panel-pi.ini` (once only: add it back in the panel's settings and it stays). Update with `sudo apt update && sudo apt full-upgrade` instead.
 - If HDMI bounces as it is plugged in, Desk Mode waits for it to settle and tries starting the desktop up to 3 times.
